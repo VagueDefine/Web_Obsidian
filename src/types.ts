@@ -3,7 +3,6 @@ export interface VaultFile {
   path: string;
   type: 'file' | 'dir';
   content?: string;
-  sha?: string;
   downloadUrl?: string;
   isBinary?: boolean;
   children?: VaultFile[];
@@ -38,4 +37,5 @@ export interface VaultState {
   setGithubAuth: (token: string) => void;
   setRepoInfo: (owner: string, repo: string, branch: string) => void;
   logout: () => void;
+  switchVault: () => void;
 }

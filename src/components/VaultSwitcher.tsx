@@ -4,7 +4,7 @@ import { fetchUserRepos, fetchRepoBranches, createRepo, fetchGitHubRepo, fetchFi
 import { Github, Plus, FolderOpen, ChevronRight, Loader2, Globe, Lock, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export const VaultSwitcher: React.FC = () => {
+export const VaultSwitcher: React.FC<{ onComplete?: () => void }> = ({ onComplete }) => {
   const { githubToken, setGithubAuth, setVault, setRepoInfo, logout, updateFile } = useVaultStore();
   const [view, setView] = useState<'login' | 'main' | 'create' | 'select-repo' | 'select-branch'>('login');
   const [repos, setRepos] = useState<any[]>([]);
@@ -128,6 +128,8 @@ export const VaultSwitcher: React.FC = () => {
 
       // Start background scan for .md files to build graph
       scanFilesForLinks(files, selectedRepo.owner.login, selectedRepo.name, branch, githubToken);
+      
+      if (onComplete) onComplete();
     } catch (e) {
       alert('Failed to open vault');
     } finally {
@@ -141,7 +143,7 @@ export const VaultSwitcher: React.FC = () => {
     try {
       const repo = await createRepo(githubToken!, newRepoName, isPrivate);
       setSelectedRepo(repo);
-      handleOpenVault(repo.default_branch || 'main');
+      await handleOpenVault(repo.default_branch || 'main');
     } catch (e: any) {
       alert(e.message);
     } finally {

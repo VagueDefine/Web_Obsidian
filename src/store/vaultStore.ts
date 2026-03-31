@@ -34,7 +34,11 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('github_token');
-    set({ githubToken: null, owner: null, repo: null, branch: null, files: [], vaultName: '' });
+    set({ githubToken: null, owner: null, repo: null, branch: null, files: [], vaultName: '', activeFilePath: null });
+  },
+
+  switchVault: () => {
+    set({ owner: null, repo: null, branch: null, files: [], vaultName: '', activeFilePath: null });
   },
 
   updateFile: (path: string, updates: Partial<VaultFile>) => {

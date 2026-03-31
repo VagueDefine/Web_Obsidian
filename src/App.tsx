@@ -15,6 +15,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [activeRightTab, setActiveRightTab] = useState<'graph' | 'backlinks' | 'outline'>('outline');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showVaultSwitcher, setShowVaultSwitcher] = useState(false);
 
   // Find active file for status bar info
   const findFile = (list: any[], path: string): any | null => {
@@ -55,7 +56,13 @@ export default function App() {
             <div className="w-4 h-4 bg-purple-500 rounded-sm flex items-center justify-center">
               <div className="w-2 h-2 bg-white/20 rounded-full" />
             </div>
-            <span className="text-xs font-bold tracking-tight uppercase text-zinc-400 truncate max-w-[200px]">{vaultName}</span>
+            <button 
+              onClick={() => setShowVaultSwitcher(true)}
+              className="text-xs font-bold tracking-tight uppercase text-zinc-400 truncate max-w-[200px] hover:text-purple-400 transition-colors flex items-center space-x-1"
+            >
+              <span>{vaultName}</span>
+              <ChevronRight size={12} className="rotate-90 opacity-50" />
+            </button>
           </div>
         </div>
 
@@ -92,6 +99,35 @@ export default function App() {
         </div>
       </header>
 
+      {/* Vault Switcher Modal */}
+      <AnimatePresence>
+        {showVaultSwitcher && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-zinc-950/80 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col relative shadow-2xl"
+            >
+              <button 
+                onClick={() => setShowVaultSwitcher(false)}
+                className="absolute top-6 right-6 p-2 hover:bg-zinc-800 rounded-full transition-colors text-zinc-500 z-10"
+              >
+                <X size={20} />
+              </button>
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <VaultSwitcher onComplete={() => setShowVaultSwitcher(false)} />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <main className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar */}
         <AnimatePresence initial={false}>
@@ -104,7 +140,7 @@ export default function App() {
               className="border-r border-zinc-800 bg-zinc-950/30 overflow-hidden flex flex-col shrink-0"
             >
               <div className="w-[260px] flex-1 flex flex-col min-h-0">
-                <FileExplorer />
+                <FileExplorer onSwitchVault={() => setShowVaultSwitcher(true)} />
                 
                 {/* Plugins Section */}
                 {plugins.length > 0 && (

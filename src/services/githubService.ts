@@ -6,8 +6,6 @@ const getHeaders = (token: string | null) => ({
   'Content-Type': 'application/json',
 });
 
-const encodePath = (path: string) => path.split('/').map(encodeURIComponent).join('/');
-
 export const fetchUserRepos = async (token: string) => {
   const response = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
     headers: getHeaders(token),
@@ -40,7 +38,7 @@ export const createRepo = async (token: string, name: string, isPrivate: boolean
 export const fetchGitHubRepo = async (owner: string, repo: string, token: string | null, customBranch?: string): Promise<{ files: VaultFile[], branch: string }> => {
   // 1. Fetch repo info to get the default branch if not provided
   const repoInfoUrl = `https://api.github.com/repos/${owner}/${repo}`;
-  const repoResponse = await fetch(repoInfoUrl, { headers: getHeaders(token), cache: 'no-store' });
+  const repoResponse = await fetch(repoInfoUrl, { headers: getHeaders(token) });
   
   if (!repoResponse.ok) {
     const errorData = await repoResponse.json().catch(() => ({ message: 'Unknown error' }));
@@ -69,18 +67,21 @@ export const fetchGitHubRepo = async (owner: string, repo: string, token: string
   }
   
   const data = await response.json();
-  const tree = data.tree;
+  const tree = data.tree || [];
   
   const root: VaultFile[] = [];
   const pathMap: Record<string, VaultFile> = {};
 
-  for (const item of tree) {
+  // Sort tree by path length to ensure parents are processed before children
+  const sortedTree = [...tree].sort((a, b) => a.path.split('/').length - b.path.split('/').length);
+
+  for (const item of sortedTree) {
     const parts = item.path.split('/');
     const name = parts[parts.length - 1];
     const path = item.path;
     const type = item.type === 'tree' ? 'dir' : 'file';
 
-    const file: VaultFile = { name, path, type, sha: item.sha };
+    const file: VaultFile = { name, path, type };
     if (type === 'dir') file.children = [];
 
     pathMap[path] = file;
@@ -92,6 +93,9 @@ export const fetchGitHubRepo = async (owner: string, repo: string, token: string
       const parent = pathMap[parentPath];
       if (parent && parent.children) {
         parent.children.push(file);
+      } else {
+        // If parent is missing (shouldn't happen with sortedTree), add to root as fallback
+        root.push(file);
       }
     }
   }
@@ -99,11 +103,11 @@ export const fetchGitHubRepo = async (owner: string, repo: string, token: string
   return { files: root, branch };
 };
 
-export const fetchFileContent = async (owner: string, repo: string, path: string, token: string | null, branch: string = 'main'): Promise<{ content: string, downloadUrl?: string, isBinary: boolean, sha: string }> => {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${encodePath(path)}?ref=${branch}`;
+export const fetchFileContent = async (owner: string, repo: string, path: string, token: string | null, branch: string = 'main'): Promise<{ content: string, downloadUrl?: string, isBinary: boolean }> => {
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
   
   // 1. Fetch metadata first to get download_url and check type
-  const metaResponse = await fetch(url, { headers: getHeaders(token), cache: 'no-store' });
+  const metaResponse = await fetch(url, { headers: getHeaders(token) });
   if (!metaResponse.ok) throw new Error(`Failed to fetch file metadata: ${path}`);
   const data = await metaResponse.json();
   
@@ -111,34 +115,31 @@ export const fetchFileContent = async (owner: string, repo: string, path: string
   const isBinary = isImage || data.size > 1024 * 1024 * 2; // Treat > 2MB as binary for safety if not explicitly text
 
   if (isImage) {
-    return { content: '', downloadUrl: data.download_url, isBinary: true, sha: data.sha };
+    return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
 
   // 2. Fetch raw content for text files
-  const rawResponse = await fetch(data.download_url, { cache: 'no-store' });
+  const rawResponse = await fetch(data.download_url);
 
   if (!rawResponse.ok) {
     // Fallback to metadata if download_url fails (unlikely)
-    return { content: '', downloadUrl: data.download_url, isBinary: true, sha: data.sha };
+    return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
 
   try {
     const content = await rawResponse.text();
-    return { content, downloadUrl: data.download_url, isBinary: false, sha: data.sha };
+    return { content, downloadUrl: data.download_url, isBinary: false };
   } catch (e) {
-    return { content: '', downloadUrl: data.download_url, isBinary: true, sha: data.sha };
+    return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
 };
 
-export const commitFile = async (token: string, owner: string, repo: string, path: string, content: string, branch: string, currentSha?: string) => {
+export const commitFile = async (token: string, owner: string, repo: string, path: string, content: string, branch: string) => {
   // 1. Get current file SHA if it exists
-  let sha = currentSha;
-  
-  // Always fetch latest SHA to prevent conflict, especially if currentSha is not provided or might be stale
+  let sha: string | undefined;
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodePath(path)}?ref=${branch}&_t=${Date.now()}`, {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, {
       headers: getHeaders(token),
-      cache: 'no-store',
     });
     if (res.ok) {
       const data = await res.json();
@@ -147,7 +148,7 @@ export const commitFile = async (token: string, owner: string, repo: string, pat
   } catch (e) {}
 
   // 2. Commit
-  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${encodePath(path)}`, {
+  const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}`, {
     method: 'PUT',
     headers: getHeaders(token),
     body: JSON.stringify({

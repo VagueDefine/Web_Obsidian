@@ -248,7 +248,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h1 id={id} className="text-3xl font-bold mb-6 text-white border-b border-zinc-800 pb-2" {...props}>{children}</h1>;
     },
     h2: ({node, children, ...props}: any) => {
@@ -257,7 +257,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h2 id={id} className="text-2xl font-bold mt-8 mb-4 text-white" {...props}>{children}</h2>;
     },
     h3: ({node, children, ...props}: any) => {
@@ -266,7 +266,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h3 id={id} className="text-xl font-bold mt-6 mb-3 text-white" {...props}>{children}</h3>;
     },
     h4: ({node, children, ...props}: any) => {
@@ -275,7 +275,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h4 id={id} className="text-lg font-bold mt-5 mb-2 text-white" {...props}>{children}</h4>;
     },
     h5: ({node, children, ...props}: any) => {
@@ -284,7 +284,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h5 id={id} className="text-base font-bold mt-4 mb-2 text-white" {...props}>{children}</h5>;
     },
     h6: ({node, children, ...props}: any) => {
@@ -293,7 +293,7 @@ export const Editor: React.FC = () => {
         if (c.children) return c.children.map((cc: any) => cc.value || '').join('');
         return '';
       }).join('');
-      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+      const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w\u4e00-\u9fa5-]/g, '');
       return <h6 id={id} className="text-sm font-bold mt-4 mb-2 text-white" {...props}>{children}</h6>;
     },
     p: ({node, children, ...props}: any) => {

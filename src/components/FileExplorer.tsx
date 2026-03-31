@@ -1,7 +1,7 @@
 import React from 'react';
 import { useVaultStore } from '../store/vaultStore';
 import { VaultFile } from '../types';
-import { Folder, File, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, File, ChevronRight, ChevronDown, RefreshCw, FolderOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FileItemProps {
@@ -75,15 +75,47 @@ const FileItem: React.FC<FileItemProps> = ({ file, depth }) => {
   );
 };
 
-export const FileExplorer: React.FC = () => {
-  const { files, vaultName } = useVaultStore();
+export const FileExplorer: React.FC<{ onSwitchVault?: () => void }> = ({ onSwitchVault }) => {
+  const { files, vaultName, owner, repo, branch, githubToken, setVault, setRepoInfo } = useVaultStore();
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  const handleRefresh = async () => {
+    if (!owner || !repo || !branch) return;
+    setIsRefreshing(true);
+    try {
+      const { fetchGitHubRepo } = await import('../services/githubService');
+      const { files: newFiles, branch: currentBranch } = await fetchGitHubRepo(owner, repo, githubToken, branch);
+      setVault(vaultName, newFiles);
+    } catch (e) {
+      console.error('Refresh failed:', e);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 border-r border-zinc-900 w-72">
-      <div className="p-4 py-3 flex items-center justify-between">
-        <h2 className="text-[11px] font-bold text-zinc-500 uppercase tracking-widest">
+    <div className="flex flex-col h-full bg-zinc-950 border-r border-zinc-900 w-full">
+      <div className="p-4 py-3 flex items-center justify-between border-b border-zinc-900/50">
+        <h2 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest truncate max-w-[140px]">
           {vaultName || 'Vault'}
         </h2>
+        <div className="flex items-center space-x-1">
+          <button 
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="p-1.5 hover:bg-zinc-900 rounded-md text-zinc-500 hover:text-purple-400 transition-all group"
+            title="Refresh Vault"
+          >
+            <RefreshCw size={14} className={`${isRefreshing ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+          </button>
+          <button 
+            onClick={onSwitchVault}
+            className="p-1.5 hover:bg-zinc-900 rounded-md text-zinc-500 hover:text-purple-400 transition-all group"
+            title="Switch Vault"
+          >
+            <FolderOpen size={14} className="group-hover:scale-110 transition-transform" />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
         {files

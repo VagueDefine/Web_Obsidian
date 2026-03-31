@@ -18,6 +18,7 @@ export const Outline: React.FC = () => {
 
   const activeFile = activeFilePath ? findFile(files, activeFilePath) : null;
   const [activeHeading, setActiveHeading] = React.useState<string | null>(null);
+  const isScrollingRef = React.useRef(false);
   
   // Use IntersectionObserver to highlight active heading
   React.useEffect(() => {
@@ -25,15 +26,26 @@ export const Outline: React.FC = () => {
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const visibleEntry = entries.find((entry) => entry.isIntersecting);
-        if (visibleEntry) {
-          setActiveHeading(visibleEntry.target.id);
+        if (isScrollingRef.current) return;
+
+        // Find all intersecting entries
+        const visibleEntries = entries.filter(entry => entry.isIntersecting);
+        
+        if (visibleEntries.length > 0) {
+          // Pick the one closest to the top of the viewport
+          const topmost = visibleEntries.reduce((prev, curr) => {
+            return (prev.boundingClientRect.top < curr.boundingClientRect.top) ? prev : curr;
+          });
+          setActiveHeading(topmost.target.id);
         }
       },
-      { rootMargin: '-10% 0px -80% 0px' }
+      { 
+        rootMargin: '-5% 0px -85% 0px',
+        threshold: [0, 1]
+      }
     );
 
-    const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    const headings = document.querySelectorAll('.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6');
     headings.forEach((h) => observer.observe(h));
 
     return () => observer.disconnect();
@@ -51,14 +63,24 @@ export const Outline: React.FC = () => {
   const headingRegex = /^(#{1,6})\s+(.+)$/gm;
   const headings = [];
   let match;
+  const idCounts: Record<string, number> = {};
   
   while ((match = headingRegex.exec(activeFile.content)) !== null) {
-    const text = match[2];
-    // Match the refined ID generation in Editor.tsx
-    const id = text.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+    const text = match[2].replace(/\*\*|\*|__/g, ''); // Strip markdown formatting for ID
+    let id = text.toLowerCase().trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\u4e00-\u9fa5-]/g, ''); // Support Chinese characters
+    
+    if (idCounts[id] !== undefined) {
+      idCounts[id]++;
+      id = `${id}-${idCounts[id]}`;
+    } else {
+      idCounts[id] = 0;
+    }
+
     headings.push({
       level: match[1].length,
-      text,
+      text: match[2],
       id,
       index: match.index
     });
@@ -73,11 +95,14 @@ export const Outline: React.FC = () => {
   }
 
   const scrollToHeading = (id: string, text: string) => {
+    isScrollingRef.current = true;
+    setActiveHeading(id);
+
     // 1. Try to find in DOM (Preview mode)
     const element = document.getElementById(id);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setActiveHeading(id);
+      setTimeout(() => { isScrollingRef.current = false; }, 1000);
       return;
     }
 
@@ -85,7 +110,8 @@ export const Outline: React.FC = () => {
     window.dispatchEvent(new CustomEvent('obsidian:scroll-to-heading', { 
       detail: { id, text } 
     }));
-    setActiveHeading(id);
+    
+    setTimeout(() => { isScrollingRef.current = false; }, 1000);
   };
 
   return (
