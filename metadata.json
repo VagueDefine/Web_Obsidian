@@ -1,0 +1,5 @@
+{
+  "name": "Web Obsidian (GitHub Sync)",
+  "description": "A web-based Obsidian-like note-taking app with GitHub integration, bi-directional linking, and graph view.",
+  "requestFramePermissions": []
+}
