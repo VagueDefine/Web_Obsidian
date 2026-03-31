@@ -13,13 +13,50 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   owner: null,
   repo: null,
   branch: null,
+  fontSize: 14,
+  showLineNumbers: true,
+  spellcheck: true,
+  readableLineLength: true,
+  newFileLocation: 'root',
+  newFileFolderPath: '',
+  attachmentLocation: 'subfolder',
+  attachmentFolderPath: 'attachments',
 
   setVault: (name, files) => {
     set({ vaultName: name, files });
     get().parseLinks();
+    get().discoverPlugins();
   },
 
   setPlugins: (plugins) => set({ plugins }),
+
+  togglePlugin: async (id, enabled) => {
+    const plugins = get().plugins.map(p => p.id === id ? { ...p, enabled } : p);
+    set({ plugins });
+
+    // Persist to GitHub
+    const { owner, repo, branch, githubToken } = get();
+    if (!owner || !repo || !githubToken) return;
+
+    const enabledPluginIds = plugins.filter(p => p.enabled).map(p => p.id);
+    try {
+      const { commitFile } = await import('../services/githubService');
+      await commitFile(
+        githubToken,
+        owner,
+        repo,
+        '.obsidian/community-plugins.json',
+        JSON.stringify(enabledPluginIds, null, 2),
+        branch || 'main'
+      );
+    } catch (e) {
+      console.error('Failed to persist plugin settings to GitHub', e);
+    }
+  },
+
+  setFontSize: (size) => set({ fontSize: size }),
+
+  updateSetting: (key, value) => set({ [key]: value } as any),
 
   setActiveFile: (path) => set({ activeFilePath: path }),
 
@@ -34,11 +71,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem('github_token');
-    set({ githubToken: null, owner: null, repo: null, branch: null, files: [], vaultName: '', activeFilePath: null });
-  },
-
-  switchVault: () => {
-    set({ owner: null, repo: null, branch: null, files: [], vaultName: '', activeFilePath: null });
+    set({ githubToken: null, owner: null, repo: null, branch: null, files: [], vaultName: '' });
   },
 
   updateFile: (path: string, updates: Partial<VaultFile>) => {
@@ -128,5 +161,59 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
     findLinksRecursive(files);
     set({ links: newLinks, backlinks: newBacklinks });
+  },
+
+  discoverPlugins: async () => {
+    const { owner, repo, branch, githubToken, files } = get();
+    if (!owner || !repo) return;
+
+    // 1. Find .obsidian/community-plugins.json to see what's enabled
+    const obsidianDir = files.find(f => f.name === '.obsidian' && f.type === 'dir');
+    if (!obsidianDir || !obsidianDir.children) return;
+
+    const communityPluginsFile = obsidianDir.children.find(f => f.name === 'community-plugins.json');
+    let enabledPluginIds: string[] = [];
+
+    if (communityPluginsFile) {
+      try {
+        const { fetchFileContent } = await import('../services/githubService');
+        const { content } = await fetchFileContent(owner, repo, communityPluginsFile.path, githubToken, branch || 'main');
+        enabledPluginIds = JSON.parse(content);
+      } catch (e) {
+        console.error('Failed to fetch community-plugins.json', e);
+      }
+    }
+
+    // 2. Scan .obsidian/plugins/ for manifest.json of each plugin
+    const pluginsDir = obsidianDir.children.find(f => f.name === 'plugins' && f.type === 'dir');
+    const discoveredPlugins: any[] = [];
+
+    if (pluginsDir && pluginsDir.children) {
+      const { fetchFileContent } = await import('../services/githubService');
+      
+      for (const pluginFolder of pluginsDir.children) {
+        if (pluginFolder.type === 'dir' && pluginFolder.children) {
+          const manifestFile = pluginFolder.children.find(f => f.name === 'manifest.json');
+          if (manifestFile) {
+            try {
+              const { content } = await fetchFileContent(owner, repo, manifestFile.path, githubToken, branch || 'main');
+              const manifest = JSON.parse(content);
+              discoveredPlugins.push({
+                id: manifest.id,
+                name: manifest.name,
+                author: manifest.author,
+                description: manifest.description,
+                version: manifest.version,
+                enabled: enabledPluginIds.includes(manifest.id)
+              });
+            } catch (e) {
+              console.warn(`Failed to fetch manifest for plugin ${pluginFolder.name}`, e);
+            }
+          }
+        }
+      }
+    }
+
+    set({ plugins: discoveredPlugins });
   }
 }));

@@ -1,20 +1,36 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, Suspense } from 'react';
 import { useVaultStore } from '../store/vaultStore';
 import { EditorView, basicSetup } from 'codemirror';
 import { markdown as cmMarkdown } from '@codemirror/lang-markdown';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorState } from '@codemirror/state';
 import { commitFile, fetchFileContent } from '../services/githubService';
-import { Loader2, Check, CloudOff, FileText, Download, ExternalLink, Eye, Edit3 } from 'lucide-react';
+import { Loader2, Check, CloudOff, FileText, Download, ExternalLink, Eye, Edit3, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import _ from 'lodash';
+import LZString from 'lz-string';
+
+// Lazy load Excalidraw as it's large
+const Excalidraw = React.lazy(() => import('@excalidraw/excalidraw').then(m => ({ default: m.Excalidraw })));
 
 export const Editor: React.FC = () => {
-  const { activeFilePath, files, updateFile, githubToken, owner, repo, branch } = useVaultStore();
+  const { 
+    activeFilePath, 
+    files, 
+    updateFile, 
+    githubToken, 
+    owner, 
+    repo, 
+    branch,
+    fontSize,
+    showLineNumbers,
+    spellcheck,
+    readableLineLength
+  } = useVaultStore();
   const editorRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -53,8 +69,8 @@ export const Editor: React.FC = () => {
     // 2. Replace ![[image.png|alias]] with standard markdown image syntax
     content = content.replace(/!\[\[(.*?)\]\]/g, (match, p1) => {
       const [target, alias] = p1.split('|');
-      // If it's a .md file, it's an embed, not an image
-      if (target.endsWith('.md')) {
+      // If it's a .md file or .excalidraw file, it's an embed
+      if (target.endsWith('.md') || target.endsWith('.excalidraw')) {
         return `:::embed{target="${target}"}:::`;
       }
       return `![${alias || target}](${target})`;
@@ -338,13 +354,14 @@ export const Editor: React.FC = () => {
         const match = text.match(/target="(.*?)"/);
         if (match) {
           const target = match[1];
+          const isExcalidraw = target.endsWith('.excalidraw') || target.endsWith('.excalidraw.md');
           const targetFile = findFile(files, target) || findFile(files, target + '.md');
           
           return (
             <div className="border border-zinc-800 rounded-xl my-8 overflow-hidden bg-zinc-900/30 group">
               <div className="p-2 px-4 border-b border-zinc-800 bg-zinc-950/50 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <FileText size={12} className="text-zinc-500" />
+                  {isExcalidraw ? <Edit3 size={12} className="text-purple-400" /> : <FileText size={12} className="text-zinc-500" />}
                   <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">{target}</span>
                 </div>
                 <button 
@@ -354,8 +371,21 @@ export const Editor: React.FC = () => {
                   Open
                 </button>
               </div>
-              <div className="p-6 text-sm text-zinc-400 max-h-[200px] overflow-hidden relative">
-                {targetFile?.content ? (
+              <div className="p-6 text-sm text-zinc-400 max-h-[300px] overflow-hidden relative">
+                {isExcalidraw ? (
+                  <div className="flex flex-col items-center justify-center py-8 space-y-4">
+                    <div className="w-16 h-16 bg-purple-500/10 rounded-2xl flex items-center justify-center border border-purple-500/20">
+                      <Edit3 size={24} className="text-purple-400" />
+                    </div>
+                    <span className="text-xs text-zinc-500 font-medium">Excalidraw Drawing</span>
+                    <button 
+                      onClick={() => useVaultStore.getState().setActiveFile(targetFile?.path || target)}
+                      className="text-xs bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-1.5 rounded-lg transition-all"
+                    >
+                      View Drawing
+                    </button>
+                  </div>
+                ) : targetFile?.content ? (
                   <div className="line-clamp-6 opacity-80">
                     {targetFile.content.substring(0, 500)}
                     {targetFile.content.length > 500 && '...'}
@@ -363,7 +393,7 @@ export const Editor: React.FC = () => {
                 ) : (
                   <div className="italic text-zinc-600">Content not loaded. Click open to view.</div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-zinc-900/80 to-transparent" />
+                {!isExcalidraw && <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-zinc-900/80 to-transparent" />}
               </div>
             </div>
           );
@@ -386,30 +416,165 @@ export const Editor: React.FC = () => {
 
   // Special renderer for Excalidraw
   const ExcalidrawView = () => {
-    if (!activeFile?.content) return null;
+    const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
+    const content = activeFile?.content || '';
     
-    return (
-      <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-24 h-24 bg-purple-500/10 rounded-3xl flex items-center justify-center mb-6 border border-purple-500/20">
-          <Edit3 size={48} className="text-purple-400" />
-        </div>
-        <h3 className="text-xl font-bold mb-2 text-white">Excalidraw Drawing</h3>
-        <p className="text-zinc-400 mb-8 max-w-md">
-          This is an Excalidraw drawing. You can edit the raw JSON below or open it in Obsidian.
-        </p>
-        <div className="w-full max-w-4xl bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
-          <div className="p-3 border-b border-zinc-800 bg-zinc-950/50 flex items-center justify-between">
-            <span className="text-xs font-mono text-zinc-500">Raw Data</span>
-            <button 
-              onClick={() => setMode('edit')}
-              className="text-xs text-purple-400 hover:text-purple-300 font-bold"
-            >
-              Edit JSON
-            </button>
+    const initialData = useMemo(() => {
+      if (!content) return null;
+      try {
+        if (activeFilePath?.endsWith('.excalidraw')) {
+          return JSON.parse(content);
+        } else if (activeFilePath?.endsWith('.excalidraw.md')) {
+          // Excalidraw files often have the JSON at the end, sometimes under a "# Drawing" heading.
+          // Let's find all json blocks and try parsing them from last to first.
+          const jsonBlocks = [...content.matchAll(/```(?:json|excalidraw)\s*([\s\S]*?)\s*```/g)];
+          
+          for (let i = jsonBlocks.length - 1; i >= 0; i--) {
+            try {
+              const parsed = JSON.parse(jsonBlocks[i][1]);
+              if (parsed.type === 'excalidraw' || parsed.elements) {
+                return parsed;
+              }
+            } catch (e) {
+              // Ignore parse errors for individual blocks, try the next one
+            }
+          }
+
+          // Check for compressed JSON
+          console.log("Checking for compressed JSON in content length:", content.length);
+          const compressedMatch = content.match(/^Compressed-json\s*([\s\S]*)$/im);
+          if (compressedMatch) {
+            console.log("Found Compressed-json match, length:", compressedMatch[1].length);
+            try {
+              const base64Data = compressedMatch[1].replace(/\s/g, '');
+              console.log("Base64 data sample:", base64Data.substring(0, 50));
+              const decompressed = LZString.decompressFromBase64(base64Data);
+              if (decompressed) {
+                console.log("Decompressed successfully, length:", decompressed.length);
+                const parsed = JSON.parse(decompressed);
+                if (parsed.type === 'excalidraw' || parsed.elements) {
+                  return parsed;
+                }
+                console.log("Parsed JSON does not look like Excalidraw");
+              } else {
+                console.log("Decompression returned null/empty");
+              }
+            } catch (e) {
+              console.error('Failed to decompress Excalidraw JSON', e);
+            }
+          } else {
+            console.log("No Compressed-json match found");
+          }
+
+          // Fallback: try to find any JSON-like structure that looks like Excalidraw data
+          const typeIndex = content.indexOf('"type": "excalidraw"');
+          const typeIndexNoSpace = content.indexOf('"type":"excalidraw"');
+          
+          let jsonStart = -1;
+          if (typeIndex !== -1) {
+            jsonStart = content.lastIndexOf('{', typeIndex);
+          } else if (typeIndexNoSpace !== -1) {
+            jsonStart = content.lastIndexOf('{', typeIndexNoSpace);
+          }
+
+          if (jsonStart !== -1) {
+            // Try parsing from jsonStart to the end of the file first
+            try {
+              return JSON.parse(content.substring(jsonStart));
+            } catch (e) {
+              // If that fails, extract by counting braces
+              let braceCount = 0;
+              let jsonEnd = -1;
+              let inString = false;
+              let escapeNext = false;
+
+              for (let i = jsonStart; i < content.length; i++) {
+                const char = content[i];
+                if (escapeNext) {
+                  escapeNext = false;
+                  continue;
+                }
+                if (char === '\\') {
+                  escapeNext = true;
+                  continue;
+                }
+                if (char === '"') {
+                  inString = !inString;
+                  continue;
+                }
+                if (!inString) {
+                  if (char === '{') braceCount++;
+                  else if (char === '}') {
+                    braceCount--;
+                    if (braceCount === 0) {
+                      jsonEnd = i + 1;
+                      break;
+                    }
+                  }
+                }
+              }
+
+              if (jsonEnd !== -1) {
+                return JSON.parse(content.substring(jsonStart, jsonEnd));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse Excalidraw data', e);
+      }
+      return null;
+    }, [content, activeFilePath]);
+
+    if (!initialData) {
+      return (
+        <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center bg-zinc-950">
+          <div className="w-20 h-20 bg-red-500/10 rounded-3xl flex items-center justify-center mb-6 border border-red-500/20">
+            <CloudOff size={32} className="text-red-400" />
           </div>
-          <pre className="p-4 text-left text-xs font-mono text-zinc-400 overflow-auto max-h-[400px] custom-scrollbar">
-            {activeFile.content}
-          </pre>
+          <h3 className="text-lg font-bold mb-2">Invalid Drawing Data</h3>
+          <p className="text-sm text-zinc-500 mb-8">Could not parse Excalidraw JSON from this file.</p>
+          <button 
+            onClick={() => setMode('edit')}
+            className="bg-zinc-800 hover:bg-zinc-700 text-white px-6 py-2 rounded-xl font-bold transition-all"
+          >
+            Edit Raw JSON
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="h-full w-full relative bg-zinc-950">
+        <Suspense fallback={
+          <div className="absolute inset-0 flex items-center justify-center bg-zinc-950">
+            <Loader2 size={32} className="text-purple-500 animate-spin" />
+          </div>
+        }>
+          <div className="h-full w-full">
+            <Excalidraw 
+              initialData={{
+                elements: initialData.elements || [],
+                appState: { ...initialData.appState, theme: 'dark' },
+                files: initialData.files || {},
+              }}
+              onChange={(elements, appState, files) => {
+                // Debounced save could be added here if we want to support editing in preview mode
+              }}
+              theme="dark"
+            />
+          </div>
+        </Suspense>
+        
+        {/* Overlay Controls */}
+        <div className="absolute top-4 right-4 flex items-center space-x-2 z-10">
+          <button 
+            onClick={() => setMode('edit')}
+            className="bg-zinc-900/80 backdrop-blur border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white p-2 rounded-lg transition-all shadow-xl"
+            title="Edit JSON"
+          >
+            <Edit3 size={16} />
+          </button>
         </div>
       </div>
     );
@@ -432,14 +597,21 @@ export const Editor: React.FC = () => {
 
   const getEditorExtensions = (filePath: string | null) => {
     const extensions = [
-      basicSetup,
+      showLineNumbers ? basicSetup : [],
       oneDark,
       EditorView.theme({
         '&': { height: '100%', backgroundColor: '#09090b' },
         '.cm-scroller': { overflow: 'auto' },
-        '.cm-content': { padding: '20px', fontSize: '15px', lineHeight: '1.6' },
+        '.cm-content': { 
+          padding: '20px', 
+          fontSize: `${fontSize}px`, 
+          lineHeight: '1.6',
+          maxWidth: readableLineLength ? '800px' : 'none',
+          margin: readableLineLength ? '0 auto' : '0'
+        },
         '.cm-gutters': { backgroundColor: '#09090b', border: 'none', color: '#3f3f46' },
       }),
+      EditorView.contentAttributes.of({ spellcheck: spellcheck.toString() }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && activeFilePath) {
           const content = update.state.doc.toString();
@@ -490,7 +662,7 @@ export const Editor: React.FC = () => {
 
   // Initialize or update editor
   useEffect(() => {
-    const isEditable = activeFilePath?.endsWith('.md') || activeFilePath?.endsWith('.txt');
+    const isEditable = activeFilePath?.endsWith('.md') || activeFilePath?.endsWith('.txt') || activeFilePath?.endsWith('.excalidraw');
     
     // If not editable or binary or in preview mode, destroy existing view
     if (!activeFilePath || activeFile?.isBinary || !isEditable || mode === 'preview') {
@@ -531,7 +703,7 @@ export const Editor: React.FC = () => {
     } catch (err) {
       console.error('CodeMirror Error:', err);
     }
-  }, [activeFilePath, activeFile?.content, activeFile?.isBinary, mode]);
+  }, [activeFilePath, activeFile?.content, activeFile?.isBinary, mode, fontSize, showLineNumbers, spellcheck, readableLineLength]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -542,6 +714,16 @@ export const Editor: React.FC = () => {
       }
     };
   }, []);
+
+  // Handle scroll to heading event
+  useEffect(() => {
+    // If it's an excalidraw file and we just opened it, default to preview mode
+    if (activeFilePath?.endsWith('.excalidraw') || activeFilePath?.endsWith('.excalidraw.md')) {
+      setMode('preview');
+    } else {
+      setMode('edit');
+    }
+  }, [activeFilePath]);
 
   // Handle scroll to heading event
   useEffect(() => {
@@ -711,7 +893,7 @@ export const Editor: React.FC = () => {
       <div className="flex-1 overflow-hidden relative">
         {mode === 'edit' ? (
           <div ref={editorRef} className="h-full w-full" />
-        ) : activeFilePath.endsWith('.excalidraw.md') ? (
+        ) : (activeFilePath.endsWith('.excalidraw.md') || activeFilePath.endsWith('.excalidraw')) ? (
           <ExcalidrawView />
         ) : (
           <div className="h-full w-full overflow-auto p-8 text-zinc-300 max-w-none custom-scrollbar markdown-body">

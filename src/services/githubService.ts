@@ -37,8 +37,11 @@ export const createRepo = async (token: string, name: string, isPrivate: boolean
 
 export const fetchGitHubRepo = async (owner: string, repo: string, token: string | null, customBranch?: string): Promise<{ files: VaultFile[], branch: string }> => {
   // 1. Fetch repo info to get the default branch if not provided
-  const repoInfoUrl = `https://api.github.com/repos/${owner}/${repo}`;
-  const repoResponse = await fetch(repoInfoUrl, { headers: getHeaders(token) });
+  const repoInfoUrl = `https://api.github.com/repos/${owner}/${repo}?t=${Date.now()}`;
+  const repoResponse = await fetch(repoInfoUrl, { 
+    headers: getHeaders(token),
+    cache: 'no-store'
+  });
   
   if (!repoResponse.ok) {
     const errorData = await repoResponse.json().catch(() => ({ message: 'Unknown error' }));
@@ -49,8 +52,11 @@ export const fetchGitHubRepo = async (owner: string, repo: string, token: string
   const branch = customBranch || repoData.default_branch || 'main';
 
   // 2. Get the SHA of the branch
-  const branchUrl = `https://api.github.com/repos/${owner}/${repo}/branches/${branch}`;
-  const branchResponse = await fetch(branchUrl, { headers: getHeaders(token) });
+  const branchUrl = `https://api.github.com/repos/${owner}/${repo}/branches/${branch}?t=${Date.now()}`;
+  const branchResponse = await fetch(branchUrl, { 
+    headers: getHeaders(token),
+    cache: 'no-store'
+  });
   if (!branchResponse.ok) {
     throw new Error(`Branch "${branch}" not found in repository "${owner}/${repo}".`);
   }
@@ -104,11 +110,25 @@ export const fetchGitHubRepo = async (owner: string, repo: string, token: string
 };
 
 export const fetchFileContent = async (owner: string, repo: string, path: string, token: string | null, branch: string = 'main'): Promise<{ content: string, downloadUrl?: string, isBinary: boolean }> => {
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}&t=${Date.now()}`;
   
   // 1. Fetch metadata first to get download_url and check type
-  const metaResponse = await fetch(url, { headers: getHeaders(token) });
-  if (!metaResponse.ok) throw new Error(`Failed to fetch file metadata: ${path}`);
+  let metaResponse;
+  try {
+    metaResponse = await fetch(url, { 
+      headers: getHeaders(token),
+      cache: 'no-store'
+    });
+  } catch (e) {
+    console.error(`Meta fetch failed for ${path}:`, e);
+    throw new Error(`Failed to fetch file metadata: ${path} (Network error)`);
+  }
+
+  if (!metaResponse.ok) {
+    const errorData = await metaResponse.json().catch(() => ({}));
+    console.error(`Meta fetch failed for ${path}:`, metaResponse.status, errorData);
+    throw new Error(`Failed to fetch file metadata: ${path} (${metaResponse.status})`);
+  }
   const data = await metaResponse.json();
   
   const isImage = /\.(png|jpe?g|gif|svg|webp|ico)$/i.test(path);
@@ -118,10 +138,28 @@ export const fetchFileContent = async (owner: string, repo: string, path: string
     return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
 
+  // If content is already in the metadata, use it
+  if (data.content && data.encoding === 'base64') {
+    try {
+      const content = decodeURIComponent(escape(atob(data.content.replace(/\s/g, ''))));
+      return { content, downloadUrl: data.download_url, isBinary: false };
+    } catch (e) {
+      console.error(`Base64 decoding failed for ${path}:`, e);
+      // Fallback to raw fetch if decoding fails
+    }
+  }
+
   // 2. Fetch raw content for text files
-  const rawResponse = await fetch(data.download_url);
+  let rawResponse;
+  try {
+    rawResponse = await fetch(data.download_url);
+  } catch (e) {
+    console.error(`Raw fetch failed for ${path}:`, e);
+    throw new Error(`Failed to fetch raw file content: ${path} (Network error)`);
+  }
 
   if (!rawResponse.ok) {
+    console.error(`Raw fetch failed for ${path}:`, rawResponse.status);
     // Fallback to metadata if download_url fails (unlikely)
     return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
@@ -130,6 +168,7 @@ export const fetchFileContent = async (owner: string, repo: string, path: string
     const content = await rawResponse.text();
     return { content, downloadUrl: data.download_url, isBinary: false };
   } catch (e) {
+    console.error(`Raw text parsing failed for ${path}:`, e);
     return { content: '', downloadUrl: data.download_url, isBinary: true };
   }
 };
@@ -138,8 +177,9 @@ export const commitFile = async (token: string, owner: string, repo: string, pat
   // 1. Get current file SHA if it exists
   let sha: string | undefined;
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}&t=${Date.now()}`, {
       headers: getHeaders(token),
+      cache: 'no-store'
     });
     if (res.ok) {
       const data = await res.json();

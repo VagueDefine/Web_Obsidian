@@ -5,6 +5,7 @@ import { GraphView } from './components/GraphView';
 import { Backlinks } from './components/Backlinks';
 import { Outline } from './components/Outline';
 import { VaultSwitcher } from './components/VaultSwitcher';
+import { Settings as SettingsModal } from './components/Settings';
 import { useVaultStore } from './store/vaultStore';
 import { Share2, Settings, Search, Menu, X, Puzzle, FolderOpen, ChevronRight, List } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -16,6 +17,7 @@ export default function App() {
   const [activeRightTab, setActiveRightTab] = useState<'graph' | 'backlinks' | 'outline'>('outline');
   const [searchQuery, setSearchQuery] = useState('');
   const [showVaultSwitcher, setShowVaultSwitcher] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Find active file for status bar info
   const findFile = (list: any[], path: string): any | null => {
@@ -93,7 +95,11 @@ export default function App() {
           >
             <Share2 size={16} />
           </button>
-          <button className="p-1.5 hover:bg-zinc-800 rounded transition-colors text-zinc-400" title="Settings">
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="p-1.5 hover:bg-zinc-800 rounded transition-colors text-zinc-400" 
+            title="Settings"
+          >
             <Settings size={16} />
           </button>
         </div>
@@ -128,6 +134,13 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <SettingsModal onClose={() => setShowSettings(false)} />
+        )}
+      </AnimatePresence>
+
       <main className="flex-1 flex overflow-hidden relative">
         {/* Left Sidebar */}
         <AnimatePresence initial={false}>
@@ -143,19 +156,19 @@ export default function App() {
                 <FileExplorer onSwitchVault={() => setShowVaultSwitcher(true)} />
                 
                 {/* Plugins Section */}
-                {plugins.length > 0 && (
+                {plugins.filter(p => p.enabled).length > 0 && (
                   <div className="p-4 border-t border-zinc-800 bg-zinc-900/10">
                     <div className="flex items-center space-x-2 mb-3">
                       <Puzzle size={14} className="text-zinc-500" />
                       <h3 className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">
-                        Plugins ({plugins.length})
+                        Enabled Plugins ({plugins.filter(p => p.enabled).length})
                       </h3>
                     </div>
                     <div className="space-y-1.5">
-                      {plugins.map((id) => (
-                        <div key={id} className="text-[11px] text-zinc-400 flex items-center space-x-2 py-1 px-2 hover:bg-zinc-900 rounded transition-colors cursor-default">
-                          <div className="w-1.5 h-1.5 bg-purple-500/50 rounded-full" />
-                          <span className="truncate">{id}</span>
+                      {plugins.filter(p => p.enabled).map((plugin) => (
+                        <div key={plugin.id} className="text-[11px] text-zinc-400 flex items-center space-x-2 py-1 px-2 hover:bg-zinc-900 rounded transition-colors cursor-default group">
+                          <div className="w-1.5 h-1.5 bg-purple-500 rounded-full shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
+                          <span className="truncate group-hover:text-zinc-200 transition-colors">{plugin.name}</span>
                         </div>
                       ))}
                     </div>
